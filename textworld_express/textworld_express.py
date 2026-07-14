@@ -181,6 +181,57 @@ class TextWorldExpressEnv:
         return orjson.loads(payload)
 
     #
+    # Full state space (on demand, from wherever the environment currently is -- typically
+    # called right after reset()). Never disturbs the live session: the crawl runs against a
+    # deep copy of the current game on the Java side.
+    #
+    def getFullStateSpace(self, maxNodes=50000, maxDepth=-1):
+        response = self.server.getFullStateSpaceJSON(maxNodes, maxDepth)
+        stateSpace = orjson.loads(response)
+        if stateSpace.get("error"):
+            raise RuntimeError(stateSpace["error"])
+        return stateSpace
+
+    #
+    # Incremental state space, for a search algorithm (e.g. a student's own BFS/DFS/A*) to drive
+    # one expansion at a time -- as opposed to getFullStateSpace() above, which crawls everything
+    # in one call. Backed by a search session on the Java side that's entirely separate from the
+    # interactive session driven by reset()/step(): getSuccessors() never calls step() on the
+    # actual environment, so exploring the search space can't be conflated with actually playing
+    # the game (and vice versa -- stepping the live environment doesn't invalidate an in-progress
+    # search).
+    #
+    # Typical usage:
+    #   obs, infos = env.reset(seed=3, gameFold="train")
+    #   start_state = env.getInitialState()
+    #   for successor in env.getSuccessors(start_state["id"]):
+    #       print(successor["action"], "->", successor["state"]["id"])
+    #
+    def getInitialState(self, maxCacheSize=50000):
+        response = self.server.getInitialStateJSON(maxCacheSize)
+        result = orjson.loads(response)
+        if result.get("error"):
+            raise RuntimeError(result["error"])
+        return result["state"]
+
+    def getSuccessors(self, stateId):
+        response = self.server.getSuccessorsJSON(stateId)
+        result = orjson.loads(response)
+        if result.get("error"):
+            raise RuntimeError(result["error"])
+        return result["successors"]
+
+    # Looks up a previously-seen state's info by id, without expanding it (no extra deepCopy/step
+    # calls -- just a cache lookup). Useful if you only kept an id around (e.g. in a frontier list)
+    # without also stashing the state dict it came with when it was first returned.
+    def getStateInfo(self, stateId):
+        response = self.server.getStateInfoJSON(stateId)
+        result = orjson.loads(response)
+        if result.get("error"):
+            raise RuntimeError(result["error"])
+        return result["state"]
+
+    #
     # Train/development/test sets
     #
     def getValidSeedsTrain(self):

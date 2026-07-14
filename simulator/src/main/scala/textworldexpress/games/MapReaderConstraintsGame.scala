@@ -93,10 +93,132 @@ class MapReaderConstraintsGame(val locations:Array[Room], val taskObjects:ArrayB
    * Cloning
    */
 
-  // TODO: Still not working (needs location map cloning)
   def deepCopy():MapReaderConstraintsGame = {
+    // Track the special (non-generic) objects -- the task coin(s), the box, and the mapbook -- so
+    // that whichever cloning pass (rooms or inventory) happens to encounter them, we get back a
+    // handle on the specific clone (matched by name, since object identity isn't preserved across clones).
+    val existingSpecialObjects = taskObjects ++ ArrayBuffer[FastObject](box, mapbook)
+    val foundSpecialClones = new ArrayBuffer[FastObject]
+
+    // Step 1: Clone locations
+    val locationsClone = new Array[Room](locations.length)
+    for (i <- 0 until locations.length) {
+      locationsClone(i) = locations(i).deepCopy(existingTaskObjects = existingSpecialObjects, copyTaskObjects = foundSpecialClones)
+    }
+
+    // Step 2: Connect rooms
+    this.connectClonedMap(locationsClone)
+
+    // Step 3: Clone the agent's inventory (may contain the mapbook, and/or the coin if picked up)
+    val clonedInventory = this.agentInventory.deepCopy(existingTaskObjects = existingSpecialObjects, copyTaskObjects = foundSpecialClones)
+
+    // Step 4: Pull out the specific clones we need, by name (box/mapbook names are unique and distinct from task object names)
+    val clonedBox = foundSpecialClones.find(_.name == this.box.name).get.asInstanceOf[Box]
+    val clonedMapbook = foundSpecialClones.find(_.name == this.mapbook.name).get.asInstanceOf[Mapbook]
+    val clonedTaskObjects = foundSpecialClones.filter(obj => (obj.name != this.box.name) && (obj.name != this.mapbook.name))
+
+    val clonedStartLocation = this.getClonedLocationReference(locationsClone, this.startLocation.name)
+    val clonedEndLocation = this.getClonedLocationReference(locationsClone, this.endLocation.name)
+
+    // Step 5: Create new game
+    // NOTE: the constructor unconditionally runs `agentInventory.addObject(mapbook)`, which -- since
+    // addObject() first detaches the object from whatever container it's currently in -- rips
+    // clonedMapbook out of wherever Steps 1/3 correctly placed it (clonedInventory, or a room if
+    // ever dropped) and re-parents it into a throwaway default inventory. We fix this up below.
+    val game = new MapReaderConstraintsGame(locationsClone, clonedTaskObjects, clonedMapbook, clonedBox, clonedStartLocation, clonedEndLocation, this.actualDistanceApart, this.limitInventorySize, this.seed, this.generationProperties)
+
+    // Overwrite the constructor's default (now-stale) inventory with the real clone
+    game.agentInventory = clonedInventory
+
+    // Restore the mapbook to wherever it actually was, undoing the constructor's side effect above.
+    // The mapbook's container could be the inventory, a room, or (since it's movable) some container
+    // within a room (e.g. the box), so search the whole cloned world for it, not just room names.
+    val correctContainer = MapReaderGame.findContainerClone(locationsClone ++ Array(game.agentInventory), this.mapbook.currentContainer.name)
+      .getOrElse(throw new RuntimeException("deepCopy(): Unable to find cloned container '" + this.mapbook.currentContainer.name + "' for the mapbook."))
+    correctContainer.addObject(clonedMapbook)
+
+    // Restore the agent's current location (the constructor defaults this to startLocation)
+    game.agentLocation = this.getClonedLocationReference(locationsClone, this.agentLocation.name)
+
     // Return
-    new MapReaderConstraintsGame(locations, taskObjects, mapbook, box, startLocation, endLocation, actualDistanceApart, limitInventorySize, seed, generationProperties)
+    game
+  }
+
+  // Connect a cloned array of locations in the same way as this map
+  private def connectClonedMap(locationsClone:Array[Room]): Unit = {
+    for (i <- 0 until locations.length) {
+      // North
+      if (this.locations(i).locationNorth != null) {
+        val connectingLocationRef = this.getClonedLocationReference(locationsClone, this.locations(i).locationNorth.name)
+        locationsClone(i).locationNorth = connectingLocationRef
+        if (this.locations(i).doorNorth != null) {
+          val doorClone = this.locations(i).doorNorth.deepCopy()
+          locationsClone(i).doorNorth = doorClone
+          connectingLocationRef.doorSouth = doorClone
+        }
+      }
+
+      // South
+      if (this.locations(i).locationSouth != null) {
+        val connectingLocationRef = this.getClonedLocationReference(locationsClone, this.locations(i).locationSouth.name)
+        locationsClone(i).locationSouth = connectingLocationRef
+        if (this.locations(i).doorSouth != null) {
+          val doorClone = this.locations(i).doorSouth.deepCopy()
+          locationsClone(i).doorSouth = doorClone
+          connectingLocationRef.doorNorth = doorClone
+        }
+      }
+
+      // East
+      if (this.locations(i).locationEast != null) {
+        val connectingLocationRef = this.getClonedLocationReference(locationsClone, this.locations(i).locationEast.name)
+        locationsClone(i).locationEast = connectingLocationRef
+        if (this.locations(i).doorEast != null) {
+          val doorClone = this.locations(i).doorEast.deepCopy()
+          locationsClone(i).doorEast = doorClone
+          connectingLocationRef.doorWest = doorClone
+        }
+      }
+
+      // West
+      if (this.locations(i).locationWest != null) {
+        val connectingLocationRef = this.getClonedLocationReference(locationsClone, this.locations(i).locationWest.name)
+        locationsClone(i).locationWest = connectingLocationRef
+        if (this.locations(i).doorWest != null) {
+          val doorClone = this.locations(i).doorWest.deepCopy()
+          locationsClone(i).doorWest = doorClone
+          connectingLocationRef.doorEast = doorClone
+        }
+      }
+    }
+  }
+
+  // Helper for above
+  private def getClonedLocationReference(locationsClone:Array[Room], name:String):Room = {
+    for (locationClone <- locationsClone) {
+      if (locationClone.name == name) return locationClone
+    }
+    throw new RuntimeException("getClonedLocationReference(): Location not found (this should never happen).  Location name (" + name + ").")
+  }
+
+  // Ground-truth name of the room the agent currently occupies
+  override def getLocationName():String = {
+    return this.agentLocation.name
+  }
+
+  // Fingerprint of the whole world (every room's contents/doors, not just the current one, plus
+  // inventory and agent location) -- see TextGame.getWorldStateSignature() for why this needs to
+  // be global rather than just the current room's description.
+  override def getWorldStateSignature():String = {
+    val os = new StringBuilder()
+    os.append(this.agentLocation.name)
+    os.append("|")
+    os.append(this.agentInventory.toJSON())
+    for (location <- this.locations) {
+      os.append("|")
+      os.append(location.toJSON())
+    }
+    return os.toString()
   }
 
   /*

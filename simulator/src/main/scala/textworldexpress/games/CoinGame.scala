@@ -80,7 +80,6 @@ class CoinGame(val locations:Array[Room], val taskObjects:ArrayBuffer[FastObject
    * Cloning
    */
 
-  // TODO: Still not working (needs location map cloning)
   def deepCopy():CoinGame = {
     val clonedTaskObjects = new ArrayBuffer[FastObject]
 
@@ -93,12 +92,21 @@ class CoinGame(val locations:Array[Room], val taskObjects:ArrayBuffer[FastObject
     // Step 2: Connect rooms
     this.connectClonedMap(locationsClone)
 
-    // Step 3: Create new game
+    // Step 3: Clone the agent's inventory *before* constructing the new game below -- the coin
+    // might currently be held rather than sitting in a room, and clonedTaskObjects must be fully
+    // populated (whichever of the two passes actually finds it) before the game (and its Scorer,
+    // whose maxScore is computed eagerly from taskObjects.length at construction time) is built.
+    // Building the game first and only then cloning the inventory left maxScore permanently
+    // frozen at 0 for any state where the coin was already picked up, causing score/0 = Infinity.
+    val clonedInventory = this.agentInventory.deepCopy(existingTaskObjects = taskObjects, copyTaskObjects = clonedTaskObjects)
+
+    // Step 4: Create new game
     val game = new CoinGame(locationsClone, clonedTaskObjects, this.limitInventorySize, seed = this.seed, this.generationProperties)
+    game.agentInventory = clonedInventory
 
-    // Also clone the agent inventory
-    game.agentInventory = this.agentInventory.deepCopy(existingTaskObjects = taskObjects, copyTaskObjects = clonedTaskObjects)
-
+    // Restore the agent's current location (the constructor defaults this to locationsClone(0))
+    val agentLocationIdx = this.locations.indexWhere(_.name == this.agentLocation.name)
+    game.agentLocation = locationsClone(agentLocationIdx)
 
     // Return
     game
@@ -161,6 +169,26 @@ class CoinGame(val locations:Array[Room], val taskObjects:ArrayBuffer[FastObject
       if (locationClone.name == name) return locationClone
     }
     throw new RuntimeException("getClonedLocationReference(): Location not found (this should never happen).  Location name (" + name + ").")
+  }
+
+  // Ground-truth name of the room the agent currently occupies
+  override def getLocationName():String = {
+    return this.agentLocation.name
+  }
+
+  // Fingerprint of the whole world (every room's contents/doors, not just the current one, plus
+  // inventory and agent location) -- see TextGame.getWorldStateSignature() for why this needs to
+  // be global rather than just the current room's description.
+  override def getWorldStateSignature():String = {
+    val os = new StringBuilder()
+    os.append(this.agentLocation.name)
+    os.append("|")
+    os.append(this.agentInventory.toJSON())
+    for (location <- this.locations) {
+      os.append("|")
+      os.append(location.toJSON())
+    }
+    return os.toString()
   }
 
   /*

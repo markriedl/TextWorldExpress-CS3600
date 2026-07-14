@@ -54,9 +54,15 @@ class FastObject(val name:String) {
   val contents = mutable.ArrayBuffer[FastObject]()
 
 
+  // Factory method used by deepCopy() to construct an empty instance of the correct
+  // runtime subclass. Subclasses that override getDescription() (or otherwise carry
+  // subclass-specific behavior) must override this too, or clones will silently fall
+  // back to generic FastObject behavior (e.g. losing custom room/appliance descriptions).
+  protected def mkClone():FastObject = new FastObject(this.name)
+
   // Attempt at a deep copy
   def deepCopy(existingTaskObjects:ArrayBuffer[FastObject], copyTaskObjects:ArrayBuffer[FastObject]):FastObject = {
-    val out = new FastObject(name)
+    val out = this.mkClone()
     out.isContainer = this.isContainer
     out.isOpen = this.isOpen
     out.isOpenable = this.isOpenable
@@ -733,6 +739,8 @@ class Fridge() extends FastObject("fridge") {
   this.isOpen = false
   this.isOpenable = true
 
+  override protected def mkClone():FastObject = new Fridge()
+
   override def getDescription():String = {
     if (this.isOpen == false) {
       return "a fridge that is closed"
@@ -758,6 +766,8 @@ class Stove() extends FastObject("stove") {
   this.isCookingDevice = true
   this.prepositionReferent = "on "
 
+  override protected def mkClone():FastObject = new Stove()
+
   override def getDescription():String = {
       return "a stove"
   }
@@ -766,6 +776,8 @@ class Stove() extends FastObject("stove") {
 // Oven
 class Oven() extends FastObject("oven") {
   this.isCookingDevice = true
+
+  override protected def mkClone():FastObject = new Oven()
 
   override def getDescription():String = {
     return "an oven"
@@ -776,6 +788,8 @@ class Oven() extends FastObject("oven") {
 class BBQ() extends FastObject("barbeque") {
   this.isCookingDevice = true
 
+  override protected def mkClone():FastObject = new BBQ()
+
   override def getDescription():String = {
     return "a barbeque"
   }
@@ -785,6 +799,8 @@ class BBQ() extends FastObject("barbeque") {
 class Toaster() extends FastObject("toaster") {
   this.isCookingDevice = true
 
+  override protected def mkClone():FastObject = new Toaster()
+
   override def getDescription():String = {
     return "a toaster"
   }
@@ -793,6 +809,8 @@ class Toaster() extends FastObject("toaster") {
 // Knife
 class Knife() extends FastObject("knife") {
   this.isMovable = true
+
+  override protected def mkClone():FastObject = new Knife()
 
   override def getDescription():String = {
     return "a knife"
@@ -813,6 +831,8 @@ class Cookbook() extends FastObject("cookbook") {
 class Mapbook() extends FastObject(name = "map") {
   this.isReadable = true
   this.isMovable = true
+
+  override protected def mkClone():FastObject = new Mapbook()
 
 }
 
@@ -839,6 +859,8 @@ class Box() extends FastObject("box") {
   this.isOpenable = false
   this.isMovable = false
 
+  override protected def mkClone():FastObject = new Box()
+
   override def getDescription():String = {
     if (this.contents.isEmpty) {
       return "a box, that is empty"
@@ -861,6 +883,8 @@ class GenericOpenableFurniture(name:String) extends FastObject(name) {
   this.isContainer = true
   this.isOpen = false
   this.isOpenable = true
+
+  override protected def mkClone():FastObject = new GenericOpenableFurniture(this.name)
 
   override def getDescription():String = {
     if (this.isOpen == false) {
@@ -888,6 +912,8 @@ class GenericSurfaceFurniture(name:String) extends FastObject(name) {
   this.isOpenable = false
   this.prepositionReferent = "on "
 
+  override protected def mkClone():FastObject = new GenericSurfaceFurniture(this.name)
+
   override def getDescription():String = {
     if (this.contents.isEmpty) {
       return "a " + name + ", that has nothing on it"
@@ -910,6 +936,8 @@ class GenericUnmovableFurniture(name:String) extends FastObject(name) {
   this.isOpenable = false
   this.isMovable = false
 
+  override protected def mkClone():FastObject = new GenericUnmovableFurniture(this.name)
+
   override def getDescription():String = {
     if (this.contents.isEmpty) {
       return "a " + name + ", that has nothing on it"
@@ -930,6 +958,8 @@ class GenericUnmovableFurnitureWithSurface(name:String) extends FastObject(name)
   this.isOpen = true
   this.isOpenable = false
   this.isMovable = false
+
+  override protected def mkClone():FastObject = new GenericUnmovableFurnitureWithSurface(this.name)
 
   override def getDescription():String = {
     if (this.contents.isEmpty) {
@@ -952,6 +982,8 @@ class GenericMovableFurniture(name:String) extends FastObject(name) {
   this.isOpen = false
   this.isOpenable = false
   this.isMovable = false
+
+  override protected def mkClone():FastObject = new GenericMovableFurniture(this.name)
 
   override def getDescription():String = {
     if (this.contents.isEmpty) {
@@ -1213,6 +1245,8 @@ class Coin() extends FastObject("coin") {
  */
 class BundleOfObjects(name:String) extends FastObject(name) {
   this.isMovable = true
+
+  override protected def mkClone():FastObject = new BundleOfObjects(this.name)
 
   override def getDescription():String = {
     return this.name

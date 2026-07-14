@@ -4,6 +4,8 @@ import java.io.PrintWriter
 
 import py4j.GatewayServer
 import textworldexpress.generator.GameGenerator
+import textworldexpress.JSON
+import textworldexpress.statespace.{IncrementalStateSpace, StateSpaceCrawler, StateSpaceResult}
 import textworldexpress.struct.{StepResult, TextGame}
 
 import collection.JavaConverters._
@@ -21,6 +23,12 @@ class PythonInterface() {
   var goldPath:Array[String] = Array.empty[String]
   var properties:Map[String, Int] = Map[String, Int]()
   var curStepResult:StepResult = null
+
+  // A separate, incrementally-expandable search space, entirely decoupled from `game`/
+  // `curStepResult` above -- see getInitialStateJSON()/getSuccessorsJSON(). Deliberately not reset
+  // by load()/step(), so that calling those to drive the interactive session doesn't invalidate an
+  // in-progress search (and vice versa: expanding the search space never calls step() on `game`).
+  var searchSpace:IncrementalStateSpace = null
 
   /*
    * Load/reset/shutdown server
@@ -254,6 +262,79 @@ class PythonInterface() {
     stepResult.toJSON()
   }
 
+
+  /*
+   * Full state space (on demand)
+   */
+
+  // Crawls the entire reachable state graph from wherever the interactive session currently is
+  // (typically called right after reset()). Never disturbs the live session -- the crawl operates
+  // on a deep copy of `game`. maxDepth < 0 means unlimited depth.
+  def getFullStateSpaceJSON(maxNodes:Int, maxDepth:Int):String = {
+    if (this.errorStr != "") return StateSpaceResult.mkError(this.errorStr).toJSON()
+    if (this.game == null) return StateSpaceResult.mkError(this.ERROR_MESSAGE_UNINITIALIZED).toJSON()
+
+    val result = StateSpaceCrawler.crawl(this.game, this.curStepResult, maxNodes, maxDepth)
+    result.toJSON()
+  }
+
+
+  /*
+   * Incremental state space (for search algorithms to drive one expansion at a time, e.g. a
+   * student's own BFS/DFS/A* -- as opposed to getFullStateSpaceJSON() above, which crawls
+   * everything internally in one call). Backed by `searchSpace`, which is completely separate from
+   * `game`/`curStepResult`: expanding search states here never calls step() on the interactive
+   * session, so a search algorithm built on this can't accidentally conflate its own exploration
+   * with actually playing the game.
+   */
+
+  // (Re)starts a search session from wherever the interactive session currently is (typically
+  // called right after reset()). Returns the starting state. Never disturbs the live session.
+  def getInitialStateJSON(maxCacheSize:Int):String = {
+    if (this.errorStr != "") return PythonInterface.mkStateErrorJSON(this.errorStr)
+    if (this.game == null) return PythonInterface.mkStateErrorJSON(this.ERROR_MESSAGE_UNINITIALIZED)
+
+    this.searchSpace = new IncrementalStateSpace(maxCacheSize)
+    val root = this.searchSpace.reset(this.game, this.curStepResult)
+    "{\"error\":\"\",\"state\":" + root.toJSON() + "}"
+  }
+
+  // Expands one previously-seen state (by id, as returned by getInitialStateJSON()/this method) into
+  // its successors. `stateId` must have come from getInitialStateJSON() or a previous call to this
+  // method in the current search session (i.e. since the last getInitialStateJSON() call).
+  def getSuccessorsJSON(stateId:String):String = {
+    if (this.searchSpace == null) {
+      return PythonInterface.mkSuccessorsErrorJSON("ERROR: No search in progress -- call getInitialState() first.")
+    }
+
+    this.searchSpace.expand(stateId) match {
+      case None =>
+        PythonInterface.mkSuccessorsErrorJSON("ERROR: Unknown state id (" + stateId + "). It must come from getInitialState(), or from getSuccessors() in the current search session.")
+      case Some(successors) =>
+        val entries = new ArrayBuffer[String]()
+        for ((action, toId) <- successors) {
+          entries.append("{\"action\":\"" + JSON.sanitize(action) + "\",\"state\":" + this.searchSpace.nodes(toId).toJSON() + "}")
+        }
+        "{\"error\":\"\",\"truncated\":" + this.searchSpace.truncated + ",\"successors\":[" + entries.mkString(",") + "]}"
+    }
+  }
+
+  // Looks up a previously-seen state's info by id, without expanding it (no deepCopy/step -- just a
+  // cache lookup). Useful when a search algorithm only kept an id around (e.g. in a frontier list)
+  // without also stashing the state dict it came with.
+  def getStateInfoJSON(stateId:String):String = {
+    if (this.searchSpace == null) {
+      return PythonInterface.mkStateErrorJSON("ERROR: No search in progress -- call getInitialState() first.")
+    }
+
+    this.searchSpace.nodes.get(stateId) match {
+      case None =>
+        PythonInterface.mkStateErrorJSON("ERROR: Unknown state id (" + stateId + "). It must come from getInitialState(), or from getSuccessors() in the current search session.")
+      case Some(node) =>
+        "{\"error\":\"\",\"state\":" + node.toJSON() + "}"
+    }
+  }
+
 }
 
 object PythonInterface {
@@ -261,6 +342,15 @@ object PythonInterface {
   /*
    * Helper functions
    */
+
+  def mkStateErrorJSON(errorStr:String):String = {
+    "{\"error\":\"" + JSON.sanitize(errorStr) + "\",\"state\":null}"
+  }
+
+  def mkSuccessorsErrorJSON(errorStr:String):String = {
+    "{\"error\":\"" + JSON.sanitize(errorStr) + "\",\"truncated\":false,\"successors\":[]}"
+  }
+
   // Parse a string of comma-delimited parameters into a Map.
   // Returns (output, errorStr).
   def parseParamStr(strIn:String):(Map[String, Int], String) = {
