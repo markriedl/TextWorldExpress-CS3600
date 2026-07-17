@@ -10,7 +10,9 @@ def _assert_internally_consistent(stateSpace):
     assert stateSpace["numStates"] == len(stateSpace["states"])
     assert stateSpace["numEdges"] == len(stateSpace["graph"])
 
-    for fromId, action, toId in stateSpace["graph"]:
+    for edge in stateSpace["graph"]:
+        assert isinstance(edge, tuple)
+        fromId, action, toId = edge
         assert fromId in stateSpace["states"]
         assert toId in stateSpace["states"]
         assert action in stateSpace["states"][fromId]["validActions"]

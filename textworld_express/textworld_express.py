@@ -190,6 +190,10 @@ class TextWorldExpressEnv:
         stateSpace = orjson.loads(response)
         if stateSpace.get("error"):
             raise RuntimeError(stateSpace["error"])
+        # orjson deserializes JSON arrays as lists (JSON has no tuple type) -- normalize each
+        # [fromId, action, toId] edge into a tuple, matching the convention already used by
+        # infos['roomMap'] (built in pure Python, so it's naturally a list of tuples).
+        stateSpace["graph"] = [tuple(edge) for edge in stateSpace["graph"]]
         return stateSpace
 
     #
