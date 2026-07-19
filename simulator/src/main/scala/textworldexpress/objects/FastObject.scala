@@ -335,12 +335,20 @@ class Room(name:String) extends FastObject(name) {
   var doorEast:Door = null
   var doorWest:Door = null
 
+  // Ground-truth grid position, set once at generation time (see each game's mkEnvironment()), so
+  // callers can lay out/measure distances between rooms without having to explore the map first.
+  // North is +y, east is +x, matching the DIRECTION_OFFSETS convention used Python-side.
+  var gridX:Int = 0
+  var gridY:Int = 0
+
 
   // Attempt at a deep copy
   override def deepCopy(existingTaskObjects:ArrayBuffer[FastObject], copyTaskObjects:ArrayBuffer[FastObject]):Room = {
     // Door never contains anything or has any other properties, so cloning is cheap.
     val out = new Room(this.name)
     out.prefersConnectingTo = this.prefersConnectingTo    // Shallow copy OK?
+    out.gridX = this.gridX
+    out.gridY = this.gridY
 
     // Contents
     // Deep copy all contents
@@ -419,6 +427,9 @@ class Room(name:String) extends FastObject(name) {
   override def toJSON():String = {
     val os = new StringBuilder(super.toJSON())
     os.update(os.length()-1, ',')  // replace '}' with ','
+
+    os.append("\"x\":" + this.gridX + ",")
+    os.append("\"y\":" + this.gridY + ",")
 
     if (this.locationNorth != null)
       os.append("\"locationNorth\": \"" + this.locationNorth.name + "\",")

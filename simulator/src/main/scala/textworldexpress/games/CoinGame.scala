@@ -1,5 +1,6 @@
 package textworldexpress.games
 
+import textworldexpress.JSON
 import textworldexpress.data.{LoadTWCDataJSON, LoadCookingWorldDataJSON, RecipeIngredient}
 import textworldexpress.goldagent.{CoinGoldAgent, CookingWorldGoldAgent}
 import textworldexpress.objects.{Backyard, Bathroom, Bedroom, Coin, Cookbook, Corridor, DoorMaker, Driveway, FastObject, Kitchen, LaundryRoom, LivingRoom, Meal, Pantry, Room, Street, Supermarket}
@@ -189,6 +190,20 @@ class CoinGame(val locations:Array[Room], val taskObjects:ArrayBuffer[FastObject
       os.append(location.toJSON())
     }
     return os.toString()
+  }
+
+  // Ground-truth JSON for every room's full (possibly nested) contents -- see
+  // TextGame.getAllRoomsJSON(). Distractor items in this game can end up placed inside a
+  // container (e.g. a fridge or cupboard) rather than directly in the room, so this needs Room's
+  // own recursive toJSON(), not just a flat listing of top-level contents.
+  override def getAllRoomsJSON():String = {
+    val entries = this.locations.map(room => "\"" + JSON.sanitize(room.name) + "\":" + room.toJSON())
+    return "{" + entries.mkString(",") + "}"
+  }
+
+  // Ground-truth list of item names in the agent's inventory -- see TextGame.getInventoryItems().
+  override def getInventoryItems():Array[String] = {
+    return this.agentInventory.contents.map(_.name).toArray
   }
 
   /*
@@ -602,6 +617,19 @@ class CoinGameGenerator {
     // Connect rooms/add doors
     this.connectRoomsFromMap(r, map.get, includeDoors)
 
+    // Record each room's ground-truth grid position -- north is +y, east is +x, matching the grid
+    // cell's (row, col): row increases going north (see connectRoomsFromMap's north/south checks),
+    // col decreases going east.
+    for (i <- 0 until map.get.length) {
+      for (j <- 0 until map.get(i).length) {
+        val cell = map.get(i)(j)
+        if (cell != null) {
+          cell.gridY = i
+          cell.gridX = -j
+        }
+      }
+    }
+
     // Randomly select one location to put the coin in
     val randomLocationIdx = r.nextInt(locations.length)
     val coin = new Coin()
@@ -629,7 +657,10 @@ class CoinGameGenerator {
       // Step 1: Pick a random location
       val randLocIdx:Int = r.nextInt(locations.length)
       val location = locations(randLocIdx)
-      val objects = location.contents.toArray
+      // Only place distractor items in containers that are visible without opening them --
+      // containers can't be opened by the agent, so anything placed inside a closed one (e.g. the
+      // fridge or a drawer) would be permanently unreachable.
+      val objects = location.contents.filter(o => o.isContainer && o.isOpen).toArray
       if (objects.length > 0) {
         val randObjIdx = r.nextInt(objects.length)
         val container = objects(randObjIdx)

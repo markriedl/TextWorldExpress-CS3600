@@ -299,23 +299,18 @@ class PythonInterface() {
     "{\"error\":\"\",\"state\":" + root.toJSON() + "}"
   }
 
-  // Expands one previously-seen state (by id, as returned by getInitialStateJSON()/this method) into
-  // its successors. `stateId` must have come from getInitialStateJSON() or a previous call to this
-  // method in the current search session (i.e. since the last getInitialStateJSON() call).
-  def getSuccessorsJSON(stateId:String):String = {
+  // Expands one previously-seen state (by id, as returned by getInitialStateJSON()/getSuccessorsJSON())
+  // via a single specific action, and returns the resulting state. `stateId` must have come from
+  // getInitialStateJSON() or a previous call to this method in the current search session (i.e.
+  // since the last getInitialStateJSON() call), and `action` must be one of that state's validActions.
+  def getSuccessorsJSON(stateId:String, action:String):String = {
     if (this.searchSpace == null) {
-      return PythonInterface.mkSuccessorsErrorJSON("ERROR: No search in progress -- call getInitialState() first.")
+      return PythonInterface.mkStateErrorJSON("ERROR: No search in progress -- call getInitialState() first.")
     }
 
-    this.searchSpace.expand(stateId) match {
-      case None =>
-        PythonInterface.mkSuccessorsErrorJSON("ERROR: Unknown state id (" + stateId + "). It must come from getInitialState(), or from getSuccessors() in the current search session.")
-      case Some(successors) =>
-        val entries = new ArrayBuffer[String]()
-        for ((action, toId) <- successors) {
-          entries.append("{\"action\":\"" + JSON.sanitize(action) + "\",\"state\":" + this.searchSpace.nodes(toId).toJSON() + "}")
-        }
-        "{\"error\":\"\",\"truncated\":" + this.searchSpace.truncated + ",\"successors\":[" + entries.mkString(",") + "]}"
+    this.searchSpace.expandAction(stateId, action) match {
+      case Left(errorStr) => PythonInterface.mkStateErrorJSON(errorStr)
+      case Right(toId) => "{\"error\":\"\",\"state\":" + this.searchSpace.nodes(toId).toJSON() + "}"
     }
   }
 
@@ -345,10 +340,6 @@ object PythonInterface {
 
   def mkStateErrorJSON(errorStr:String):String = {
     "{\"error\":\"" + JSON.sanitize(errorStr) + "\",\"state\":null}"
-  }
-
-  def mkSuccessorsErrorJSON(errorStr:String):String = {
-    "{\"error\":\"" + JSON.sanitize(errorStr) + "\",\"truncated\":false,\"successors\":[]}"
   }
 
   // Parse a string of comma-delimited parameters into a Map.

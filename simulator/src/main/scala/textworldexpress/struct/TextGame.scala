@@ -40,6 +40,23 @@ abstract class TextGame {
     return ""
   }
 
+  // Ground-truth JSON for *every* room's full contents -- not just the room the agent currently
+  // stands in -- including door open/closed status and any containers' open/closed status and
+  // (possibly nested) contents. This reuses FastObject/Room's own toJSON() serialization, so it's
+  // exactly as complete as the engine's internal object model (e.g. it correctly reflects a
+  // distractor item that happens to be inside a fridge, not just sitting directly in the room).
+  // Default is an empty JSON object for games without room structure.
+  def getAllRoomsJSON():String = {
+    return "{}"
+  }
+
+  // Ground-truth list of item names currently in the agent's inventory -- as opposed to the
+  // `inventoryStr` on StepResult, which is natural-language text meant for display. Default empty
+  // for games without this support.
+  def getInventoryItems():Array[String] = {
+    return Array.empty[String]
+  }
+
   /*
    * History
    */

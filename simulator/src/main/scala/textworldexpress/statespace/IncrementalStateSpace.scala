@@ -55,8 +55,8 @@ class IncrementalStateSpace(val maxCacheSize:Int) {
       validActions = sr.validActions,
       scoreRaw = sr.scoreRaw,
       scoreNormalized = sr.scoreNormalized,
-      taskSuccess = sr.taskSuccess,
-      taskFailure = sr.taskFailure
+      rooms = game.getAllRoomsJSON(),
+      inventoryItems = game.getInventoryItems()
     )
   }
 
@@ -93,6 +93,9 @@ class IncrementalStateSpace(val maxCacheSize:Int) {
   // re-discovering an already-known state via a different action returns that same id rather than
   // minting a new one). Returns None if `stateId` was never returned by reset() or expand() in this
   // session (e.g. a stale id from a previous reset()).
+  //
+  // Used internally by StateSpaceCrawler's exhaustive BFS for the one-shot getFullStateSpace() call.
+  // PythonInterface's getSuccessors() instead uses expandAction() below, one action at a time.
   def expand(stateId:String):Option[Array[(String, String)]] = {
     val cachedGame = games.get(stateId)
     if (cachedGame.isEmpty) return None
@@ -123,5 +126,44 @@ class IncrementalStateSpace(val maxCacheSize:Int) {
     }
 
     Some(edges.toArray)
+  }
+
+  // Expands one previously-seen state (by id) via a single specific action -- one deepCopy/step,
+  // deduped the same way as expand() above (so a self-loop, or reaching an already-known state via
+  // a different action, resolves to that state's existing id rather than minting a new one).
+  //
+  // Returns Right(toId) on success, or Left(errorMessage) if `stateId` is unknown, `action` isn't
+  // one of that state's validActions, or the session's node cache is full (maxCacheSize) and this
+  // would-be a genuinely new state.
+  def expandAction(stateId:String, action:String):Either[String, String] = {
+    val cachedGame = games.get(stateId)
+    if (cachedGame.isEmpty) {
+      return Left("ERROR: Unknown state id (" + stateId + "). It must come from getInitialState(), or from getSuccessors() in the current search session.")
+    }
+
+    val curNode = nodes(stateId)
+    if (!curNode.validActions.contains(action)) {
+      return Left("ERROR: '" + action + "' is not a valid action from state (" + stateId + "). Valid actions: " + curNode.validActions.mkString(", ") + ".")
+    }
+
+    val gameCopy = cachedGame.get.deepCopy()
+    gameCopy.initalStep()
+    val sr = gameCopy.step(action)
+    val sig = signature(gameCopy, sr)
+
+    sigToId.get(sig) match {
+      case Some(existingId) => Right(existingId)
+      case None =>
+        if (nodes.size >= maxCacheSize) {
+          truncated = true
+          Left("ERROR: Search session's node cache is full (maxCacheSize=" + maxCacheSize + "). Cannot expand into a new state.")
+        } else {
+          val newId = nextId()
+          sigToId(sig) = newId
+          nodes(newId) = mkNode(newId, gameCopy, sr)
+          games(newId) = gameCopy
+          Right(newId)
+        }
+    }
   }
 }

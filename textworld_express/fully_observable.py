@@ -25,7 +25,7 @@ class FullyObservableTextWorldExpressEnv(TextWorldExpressEnv):
           "numStates": int, "numEdges": int, "truncated": bool,
           "states": {id: {"observation", "look", "inventory", "location",
                           "validActions", "scoreRaw", "score",
-                          "taskSuccess", "taskFailure"}, ...},
+                          "rooms", "inventoryItems"}, ...},
           "graph": [[fromId, action, toId], ...],
         }
 

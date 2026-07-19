@@ -208,8 +208,9 @@ class TextWorldExpressEnv:
     # Typical usage:
     #   obs, infos = env.reset(seed=3, gameFold="train")
     #   start_state = env.getInitialState()
-    #   for successor in env.getSuccessors(start_state["id"]):
-    #       print(successor["action"], "->", successor["state"]["id"])
+    #   for action in start_state["validActions"]:
+    #       state = env.getSuccessors(start_state["id"], action)
+    #       print(action, "->", state["id"])
     #
     def getInitialState(self, maxCacheSize=50000):
         response = self.server.getInitialStateJSON(maxCacheSize)
@@ -218,12 +219,14 @@ class TextWorldExpressEnv:
             raise RuntimeError(result["error"])
         return result["state"]
 
-    def getSuccessors(self, stateId):
-        response = self.server.getSuccessorsJSON(stateId)
+    # Returns the single state reached from `stateId` by taking `action` -- `action` must be one of
+    # that state's validActions.
+    def getSuccessors(self, stateId, action):
+        response = self.server.getSuccessorsJSON(stateId, action)
         result = orjson.loads(response)
         if result.get("error"):
             raise RuntimeError(result["error"])
-        return result["successors"]
+        return result["state"]
 
     # Looks up a previously-seen state's info by id, without expanding it (no extra deepCopy/step
     # calls -- just a cache lookup). Useful if you only kept an id around (e.g. in a frontier list)

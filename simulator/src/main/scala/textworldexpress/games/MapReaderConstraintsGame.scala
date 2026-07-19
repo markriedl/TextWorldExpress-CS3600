@@ -1,5 +1,6 @@
 package textworldexpress.games
 
+import textworldexpress.JSON
 import textworldexpress.data.{LoadTWCDataJSON, LoadCookingWorldDataJSON}
 import textworldexpress.goldagent.{CoinGoldAgent, MapReaderConstraintsGoldAgent}
 import textworldexpress.objects.{Alley, Backyard, Bathroom, Bedroom, Box, Coin, Corridor, DoorMaker, Driveway, FastObject, Foyer, Garage, Kitchen, LaundryRoom, LivingRoom, Mapbook, Pantry, Room, Sideyard, Street, Supermarket}
@@ -219,6 +220,18 @@ class MapReaderConstraintsGame(val locations:Array[Room], val taskObjects:ArrayB
       os.append(location.toJSON())
     }
     return os.toString()
+  }
+
+  // Ground-truth JSON for every room's full (possibly nested) contents -- see
+  // TextGame.getAllRoomsJSON().
+  override def getAllRoomsJSON():String = {
+    val entries = this.locations.map(room => "\"" + JSON.sanitize(room.name) + "\":" + room.toJSON())
+    return "{" + entries.mkString(",") + "}"
+  }
+
+  // Ground-truth list of item names in the agent's inventory -- see TextGame.getInventoryItems().
+  override def getInventoryItems():Array[String] = {
+    return this.agentInventory.contents.map(_.name).toArray
   }
 
   /*
@@ -660,6 +673,19 @@ class MapReaderConstraintsGameGenerator {
 
     // Connect rooms/add doors
     this.connectRoomsFromMap(r, map.get, includeDoors)
+
+    // Record each room's ground-truth grid position -- north is +y, east is +x, matching the grid
+    // cell's (row, col): row increases going north (see connectRoomsFromMap's north/south checks),
+    // col decreases going east.
+    for (i <- 0 until map.get.length) {
+      for (j <- 0 until map.get(i).length) {
+        val cell = map.get(i)(j)
+        if (cell != null) {
+          cell.gridY = i
+          cell.gridX = -j
+        }
+      }
+    }
 
     // Find start/end locations
     val distanceApart = r.nextInt(maxDistanceApart)+1

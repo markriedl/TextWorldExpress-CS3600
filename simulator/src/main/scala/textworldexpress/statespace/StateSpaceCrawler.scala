@@ -7,7 +7,14 @@ import scala.collection.mutable
 import scala.collection.mutable.ArrayBuffer
 
 // One node in the crawled state graph.
-case class StateNode(id:String, observation:String, look:String, inventory:String, location:String, validActions:Array[String], scoreRaw:Double, scoreNormalized:Double, taskSuccess:Boolean, taskFailure:Boolean) {
+//
+// Deliberately excludes the engine's own taskSuccess/taskFailure win/lose flags (unlike StepResult,
+// which still carries them for the interactive env.step()/env.reset() session) -- those flags are
+// tied to whatever single built-in objective a game happens to define (e.g. CoinGame's "is the coin
+// in inventory"), and baking that into every search-API state would make it impossible for a search
+// algorithm to target a different objective (e.g. "pick up the coin AND the knife") without new
+// Scala-side game code. Callers instead compute their own is_goal() from `rooms`/`inventoryItems`.
+case class StateNode(id:String, observation:String, look:String, inventory:String, location:String, validActions:Array[String], scoreRaw:Double, scoreNormalized:Double, rooms:String, inventoryItems:Array[String]) {
   def toJSON():String = {
     val os = new StringBuilder()
     os.append("{")
@@ -19,8 +26,10 @@ case class StateNode(id:String, observation:String, look:String, inventory:Strin
     os.append("\"validActions\":[\"" + validActions.map(JSON.sanitize).mkString("\",\"") + "\"],")
     os.append("\"scoreRaw\":" + scoreRaw + ",")
     os.append("\"score\":" + scoreNormalized + ",")
-    os.append("\"taskSuccess\":" + taskSuccess + ",")
-    os.append("\"taskFailure\":" + taskFailure)
+    // `rooms` is already-serialized JSON (from FastObject/Room.toJSON()), so it's embedded as-is,
+    // not sanitized/quoted like the plain string fields above.
+    os.append("\"rooms\":" + rooms + ",")
+    os.append("\"inventoryItems\":[" + inventoryItems.map(x => "\"" + JSON.sanitize(x) + "\"").mkString(",") + "]")
     os.append("}")
     os.toString()
   }
@@ -89,7 +98,10 @@ object StateSpaceCrawler {
       val (curId, depth) = queue.dequeue()
       val curNode = space.nodes(curId)
 
-      val shouldExpand = !curNode.taskSuccess && !curNode.taskFailure && (maxDepth < 0 || depth < maxDepth)
+      // Expand purely on reachability/depth -- not on the engine's own taskSuccess/taskFailure
+      // (deliberately not part of StateNode; see its docstring), since a caller-defined objective may
+      // need states beyond whatever the built-in game considers "done".
+      val shouldExpand = maxDepth < 0 || depth < maxDepth
       if (shouldExpand) {
         space.expand(curId) match {
           case Some(successors) =>
